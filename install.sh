@@ -181,6 +181,20 @@ while true; do
   sleep 10
 done
 
+# ---------- rebuild frontend from local source ----------
+# The DockerHub image may lack JWT removal for public access
+# Build from local source and push to the minikube registry.
+if [ -d "$SCRIPT_DIR/services/frontend" ]; then
+  info "Building frontend from local source..."
+  eval $(minikube docker-env)
+  docker build -t localhost:5000/frontend:latest "$SCRIPT_DIR/services/frontend/" >/dev/null 2>&1
+  docker push localhost:5000/frontend:latest >/dev/null 2>&1
+  kubectl set image deployment/frontend frontend=localhost:5000/frontend:latest -n "$NAMESPACE" 2>/dev/null || true
+  kubectl rollout restart deployment/frontend -n "$NAMESPACE" 2>/dev/null || true
+  kubectl rollout status deployment/frontend -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
+  info "frontend rebuilt from local source."
+fi
+
 # ---------- rebuild sib-manager from local source ----------
 # The DockerHub image may lack bug fixes (binary read mode, response_model, etc.)
 # Build from local source and push to the minikube registry.
