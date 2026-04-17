@@ -1,5 +1,106 @@
 # Cinco De Bio Core Repository
 
+## Try
+
+You can easily try out Cinco De Bio. Choose one of the deployment options below:
+
+## Docker Only (Recommended for Development & Testing)
+
+### Prerequisites
+
+1. **Docker** — Install [Docker Desktop](https://www.docker.com/products/docker-desktop) (Mac, Windows with WSL2, or Linux)
+2. **Docker Hub Account** — Create a free account at [hub.docker.com](https://hub.docker.com) (needed to avoid Docker pull rate limits)
+
+### Installation
+
+CincoDeBio runs as a single all-in-one Docker container with an embedded k3s Kubernetes cluster:
+
+```bash
+docker run -d --privileged --cgroupns=host --name cincodebio \
+  -p 80:80 \
+  -e DOCKER_HUB_USERNAME=<docker-hub-username> \
+  -e DOCKER_HUB_PASSWORD=<docker-hub-password> \
+  cincodebio-aio
+```
+
+Or build from source:
+
+```bash
+cd cincodebio/
+docker build -f docker/Dockerfile -t cincodebio-aio .
+
+docker run -d --privileged --cgroupns=host --name cincodebio \
+  -p 80:80 \
+  -e DOCKER_HUB_USERNAME=<docker-hub-username> \
+  -e DOCKER_HUB_PASSWORD=<docker-hub-password> \
+  cincodebio-aio
+```
+
+### First-Time Setup
+
+The first startup takes ~5-10 minutes (k3s initialization + pod deployment + kaniko SIB build):
+
+```bash
+# Monitor startup progress
+docker logs cincodebio --follow
+
+# Once you see "CincoDeBio is ready!" the system is running
+```
+
+### Access CincoDeBio
+
+- **Frontend:** http://localhost/app/
+- **Minio Console:** http://localhost/minio-console/ (admin / mypassword)
+
+### Verify Installation
+
+```bash
+# Check all pods are running
+docker exec cincodebio kubectl get pods
+
+# View sib-manager logs
+docker exec cincodebio kubectl logs -l app=sib-manager
+
+# Stop the container
+docker stop cincodebio && docker rm cincodebio
+```
+
+## Minikube (Alternative)
+
+### Prerequisites
+
+1. **Docker** — Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+2. **Minikube** — Install [minikube](https://minikube.sigs.k8s.io/)
+3. **kubectl** — Install [kubectl](https://kubernetes.io/docs/tasks/tools/)
+4. **Helm** — Install [Helm](https://helm.sh/)
+5. **Docker Hub Account** — Create a free account at [hub.docker.com](https://hub.docker.com)
+
+### Installation
+
+```bash
+# Start minikube cluster
+minikube start --cpus 4 --memory 8192 --disk-size 50gb
+
+# Deploy CincoDeBio
+cd cincodebio/
+DOCKER_HUB_USERNAME=<docker-hub-username> \
+DOCKER_HUB_PASSWORD=<docker-hub-password> \
+bash install.sh 2>&1
+```
+
+### Access CincoDeBio
+
+```bash
+# Get the IP address
+MINIKUBE_IP=$(minikube ip)
+
+# Add to /etc/hosts or access directly
+echo "$MINIKUBE_IP localhost" | sudo tee -a /etc/hosts
+
+# Frontend: http://localhost/app/
+# Minio: http://localhost/minio-console/
+```
+
 ## Architecture Overview
 
 CincoDeBio is a cloud-native application designed for bioinformatics workflow management. It leverages a microservices architecture, orchestrated through Kubernetes, and employs several key components and technologies to ensure scalability, reliability, and flexibility.
