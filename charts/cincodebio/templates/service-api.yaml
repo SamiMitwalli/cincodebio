@@ -29,6 +29,7 @@ spec:
       labels:
         app: {{ .Values.serviceApi.name }}
     spec:
+      serviceAccountName: cincodebio-sa
       containers:
         - name: {{ .Values.serviceApi.name }}
           image: {{ .Values.serviceApi.image }}

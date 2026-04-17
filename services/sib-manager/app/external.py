@@ -53,7 +53,7 @@ async def check_sib_file_hashes(body: CheckSibFilesHashesRequest):
 
 # --- ENDPOINTS FOR THE UTD SIB FILES ---
 # deprecated - was used for eclipse based IME
-@router.get("/get-utd-sib-file", response_model=UtdSibFilesResponse)
+@router.get("/get-utd-sib-file", response_model=UtdSibFileResponse)
 def get_utd_sib_file(request: Request):
     user_agent = request.headers.get('User-Agent', '')
     state_path = pathlib.Path(PERSISTENT_STATE_MOUNT_PATH)

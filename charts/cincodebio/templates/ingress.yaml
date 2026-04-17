@@ -21,7 +21,7 @@ spec:
     http:
       paths:
       - path: /app/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.frontend.name }}
@@ -30,7 +30,7 @@ spec:
 
       # Definitely needs to be available outside the cluster
       - path: /{{ .Values.global.ingress_paths.minio_console_ingress_path }}/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.minio.fullnameOverride }}
@@ -99,7 +99,7 @@ spec:
       paths:
       # Definitely needs to be available outside the cluster
       - path: /{{ .Values.global.ingress_paths.execution_api_ingress_path }}/ext/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.executionApi.name }}
@@ -107,7 +107,7 @@ spec:
               number: 80
 
       - path: /{{ .Values.global.ingress_paths.jobs_api_ingress_path }}/ext/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.jobsApi.name }}
@@ -115,7 +115,7 @@ spec:
               number: 80
       # Definitely needs to be available outside the cluster
       - path: /{{ .Values.global.ingress_paths.services_api_ingress_path }}/ext/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.serviceApi.name }}
@@ -123,7 +123,7 @@ spec:
               number: 80
       # Definitely needs to be available outside the cluster
       - path: /{{ .Values.global.ingress_paths.sib_manager_ingress_path }}/ext/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.sibManager.name }}
@@ -131,7 +131,7 @@ spec:
               number: 80
 
       - path: /{{ .Values.global.ingress_paths.data_manager_ingress_path }}/ext/(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: {{ .Values.dataManager.name }}

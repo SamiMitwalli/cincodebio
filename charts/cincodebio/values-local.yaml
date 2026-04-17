@@ -1,0 +1,22 @@
+# values-local.yaml — Overrides for local minikube deployment
+serverTier: local
+ingress_class: nginx
+hostname: cdb.local
+minioHostname: minio.cdb.local
+
+minio:
+  image:
+    registry: docker.io
+    repository: bitnami/minio
+    tag: 2024.3.26-debian-12-r2
+
+global:
+  containers:
+    docker_hub_namespace: "sccecellmaps"
+    docker_hub_username: ""   # set via --set or env var; do NOT commit credentials
+    docker_hub_password: ""   # set via --set or env var; do NOT commit credentials
+    cluster_image_registry:
+      name: "registry"
+      namespace: "kube-system"
+      port: 80
+      domain_on_host: "localhost:5000"
