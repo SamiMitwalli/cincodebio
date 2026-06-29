@@ -14,9 +14,11 @@
 const SIB_MANAGER = process.env.SIB_MANAGER_URL || "http://localhost:8081";
 const EXECUTION_API = process.env.EXECUTION_API_URL || "http://localhost:8082";
 const SERVICE_API = process.env.SERVICE_API_URL || "http://localhost:8084";
+const crypto = require("crypto");
 
 let passed = 0;
 let failed = 0;
+let sibFilesCache = null;
 
 async function test(name, fn) {
   try {
@@ -93,6 +95,58 @@ async function testGetUtdSibFile() {
   assert(data.file, "missing file key");
   assert(data.file.length > 0, "file is empty");
   console.log(`         UTD sib file: ${data.file.length} characters`);
+}
+
+async function fetchMissingSibFiles() {
+  if (!sibFilesCache) {
+    const { res, data } = await fetchJSON(`${SIB_MANAGER}/ext/get-missing-sib-files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_ids: [] }),
+    });
+    assert(res.ok, `status ${res.status}`);
+    assert(data.files && Object.keys(data.files).length > 0, `missing or empty files: ${JSON.stringify(data)}`);
+    sibFilesCache = data.files;
+  }
+  return sibFilesCache;
+}
+
+async function testGetMissingSibFiles() {
+  const files = await fetchMissingSibFiles();
+  console.log(`         Missing request returned ${Object.keys(files).length} SIB files`);
+}
+
+async function testCheckSibFilesHashesValid() {
+  const files = await fetchMissingSibFiles();
+  const fileHashes = Object.fromEntries(Object.entries(files).map(([name, content]) => [
+    name,
+    crypto.createHash("sha256").update(content, "utf8").digest("hex"),
+  ]));
+  const { res, data } = await fetchJSON(`${SIB_MANAGER}/ext/check-sib-files-hashes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileHashes }),
+  });
+  assert(res.ok, `status ${res.status}`);
+  const hashes = data.hashesValid || {};
+  const invalid = Object.entries(hashes).filter(([, status]) => status !== "VALID").map(([name]) => name);
+  assert(Object.keys(hashes).length === Object.keys(fileHashes).length, "hash response key count differs");
+  assert(invalid.length === 0, `invalid hashes: ${invalid.join(", ")}`);
+  console.log(`         Validated hashes for ${Object.keys(hashes).length} SIB files`);
+}
+
+async function testGetUtdSibFiles() {
+  const files = await fetchMissingSibFiles();
+  const requested = Object.keys(files).sort().slice(0, 3);
+  const { res, data } = await fetchJSON(`${SIB_MANAGER}/ext/get-utd-sib-files`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_ids: requested }),
+  });
+  assert(res.ok, `status ${res.status}`);
+  const returned = data.files || {};
+  assert(requested.every((name) => returned[name]), `missing requested files: ${JSON.stringify(data)}`);
+  console.log(`         Retrieved ${Object.keys(returned).length} requested SIB files`);
 }
 
 async function testCheckSibFileHashInvalid() {
@@ -217,6 +271,9 @@ async function main() {
   await test("get-installed-sibs", testGetInstalledSibs);
   await test("get-uninstalled-sibs", testGetUninstalledSibs);
   await test("get-utd-sib-file", testGetUtdSibFile);
+  await test("get-missing-sib-files", testGetMissingSibFiles);
+  await test("check-sib-files-hashes (valid)", testCheckSibFilesHashesValid);
+  await test("get-utd-sib-files", testGetUtdSibFiles);
   await test("check-sib-file-hash (invalid)", testCheckSibFileHashInvalid);
   await test("check-sib-files-hashes (empty)", testCheckSibFilesHashesEmpty);
   await test("sib-manager-state", testSibManagerState);

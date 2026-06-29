@@ -84,6 +84,81 @@ RESP=$(curl -sf "$SIB_MANAGER/ext/get-utd-sib-file" 2>/dev/null) && {
   } || fail "get-utd-sib-file" "missing file key"
 } || fail "get-utd-sib-file" "request failed"
 
+# get-missing-sib-files
+MISSING_SIBS_JSON="/tmp/cdb_missing_sibs.json"
+HAVE_SIB_FILES=false
+RESP=$(curl -sf -X POST "$SIB_MANAGER/ext/get-missing-sib-files" \
+  -H "Content-Type: application/json" \
+  -d '{"file_ids":[]}' 2>/dev/null) && {
+  echo "$RESP" > "$MISSING_SIBS_JSON"
+  COUNT=$(python3 -c "import json,sys; print(len(json.load(open('$MISSING_SIBS_JSON')).get('files',{})))" 2>/dev/null || echo "0")
+  if [ "$COUNT" -gt 0 ]; then
+    HAVE_SIB_FILES=true
+    pass "get-missing-sib-files"
+    echo "         Missing request returned $COUNT SIB files"
+  else
+    fail "get-missing-sib-files" "no SIB files returned"
+  fi
+} || fail "get-missing-sib-files" "request failed"
+
+# check-sib-files-hashes (valid)
+HASH_PAYLOAD_JSON="/tmp/cdb_hash_payload.json"
+if [ "$HAVE_SIB_FILES" = true ]; then
+python3 - <<PY
+import hashlib, json
+with open('$MISSING_SIBS_JSON') as f:
+    files = json.load(f).get('files', {})
+payload = {name: hashlib.sha256(content.encode('utf-8')).hexdigest() for name, content in files.items()}
+with open('$HASH_PAYLOAD_JSON', 'w') as f:
+    json.dump({'fileHashes': payload}, f)
+PY
+RESP=$(curl -sf -X POST "$SIB_MANAGER/ext/check-sib-files-hashes" \
+  -H "Content-Type: application/json" \
+  -d "@$HASH_PAYLOAD_JSON" 2>/dev/null) && {
+  python3 - <<PY
+import json, sys
+data = json.loads('''$RESP''')
+hashes = data.get('hashesValid', {})
+invalid = [name for name, status in hashes.items() if status != 'VALID']
+if not hashes or invalid:
+    print('invalid=' + ','.join(invalid))
+    sys.exit(1)
+print(len(hashes))
+PY
+  VALID_COUNT=$(python3 -c "import json; print(len(json.loads('''$RESP''').get('hashesValid', {})))" 2>/dev/null || echo "?")
+  pass "check-sib-files-hashes (valid)"
+  echo "         Validated hashes for $VALID_COUNT SIB files"
+} || fail "check-sib-files-hashes (valid)" "$RESP"
+else
+  fail "check-sib-files-hashes (valid)" "skipped because get-missing-sib-files failed"
+fi
+
+# get-utd-sib-files
+REQUEST_PAYLOAD_JSON="/tmp/cdb_requested_sibs.json"
+if [ "$HAVE_SIB_FILES" = true ]; then
+python3 - <<PY
+import json
+with open('$MISSING_SIBS_JSON') as f:
+    files = json.load(f).get('files', {})
+requested = sorted(files.keys())[:3]
+with open('$REQUEST_PAYLOAD_JSON', 'w') as f:
+    json.dump({'file_ids': requested}, f)
+PY
+RESP=$(curl -sf -X POST "$SIB_MANAGER/ext/get-utd-sib-files" \
+  -H "Content-Type: application/json" \
+  -d "@$REQUEST_PAYLOAD_JSON" 2>/dev/null) && {
+  COUNT=$(echo "$RESP" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('files',{})))" 2>/dev/null || echo "0")
+  if [ "$COUNT" -gt 0 ]; then
+    pass "get-utd-sib-files"
+    echo "         Retrieved $COUNT requested SIB files"
+  else
+    fail "get-utd-sib-files" "no files returned"
+  fi
+} || fail "get-utd-sib-files" "request failed"
+else
+  fail "get-utd-sib-files" "skipped because get-missing-sib-files failed"
+fi
+
 # check-sib-file-hash (invalid)
 RESP=$(curl -sf -X POST "$SIB_MANAGER/ext/check-sib-file-hash" \
   -H "Content-Type: application/json" \

@@ -13,7 +13,9 @@ Requires port-forwards:
 """
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 from collections import Counter
 import requests
@@ -24,6 +26,7 @@ SERVICE_API = None
 
 PASSED = 0
 FAILED = 0
+SIB_FILES_CACHE = None
 
 
 def test(name, fn):
@@ -97,6 +100,63 @@ def test_get_utd_sib_file():
     assert "file" in data, "missing 'file' key"
     assert len(data["file"]) > 0, "sib file content is empty"
     print(f"         UTD sib file: {len(data['file'])} characters")
+
+
+def fetch_missing_sib_files():
+    global SIB_FILES_CACHE
+    if SIB_FILES_CACHE is None:
+        r = requests.post(
+            f"{SIB_MANAGER}/ext/get-missing-sib-files",
+            json={"file_ids": []},
+            timeout=20,
+        )
+        assert r.status_code == 200, f"status {r.status_code}, body: {r.text}"
+        data = r.json()
+        assert "files" in data, f"missing 'files' key: {data}"
+        assert len(data["files"]) > 0, "no SIB files returned"
+        SIB_FILES_CACHE = data["files"]
+    return SIB_FILES_CACHE
+
+
+def test_get_missing_sib_files():
+    files = fetch_missing_sib_files()
+    print(f"         Missing request returned {len(files)} SIB files")
+
+
+def test_check_sib_files_hashes_valid():
+    files = fetch_missing_sib_files()
+    payload = {
+        name: hashlib.sha256(content.encode("utf-8")).hexdigest()
+        for name, content in files.items()
+    }
+    r = requests.post(
+        f"{SIB_MANAGER}/ext/check-sib-files-hashes",
+        json={"fileHashes": payload},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"status {r.status_code}, body: {r.text}"
+    data = r.json()
+    hashes = data.get("hashesValid", {})
+    assert set(hashes.keys()) == set(payload.keys()), f"hash response keys differ: {hashes.keys()}"
+    invalid = [name for name, status in hashes.items() if status != "VALID"]
+    assert not invalid, f"expected all hashes VALID, got invalid: {invalid}"
+    print(f"         Validated hashes for {len(hashes)} SIB files")
+
+
+def test_get_utd_sib_files():
+    files = fetch_missing_sib_files()
+    requested = sorted(files.keys())[:3]
+    r = requests.post(
+        f"{SIB_MANAGER}/ext/get-utd-sib-files",
+        json={"file_ids": requested},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"status {r.status_code}, body: {r.text}"
+    data = r.json()
+    returned = data.get("files", {})
+    assert set(returned.keys()) == set(requested), f"expected {requested}, got {list(returned.keys())}"
+    assert all(returned[name] for name in requested), "one or more returned SIB files are empty"
+    print(f"         Retrieved {len(returned)} requested SIB files")
 
 
 def test_check_sib_file_hash_invalid():
@@ -204,9 +264,9 @@ def main():
     global SIB_MANAGER, EXECUTION_API, SERVICE_API
 
     parser = argparse.ArgumentParser(description="CincoDeBio endpoint tests")
-    parser.add_argument("--sib-manager", default="http://localhost:8081")
-    parser.add_argument("--execution-api", default="http://localhost:8082")
-    parser.add_argument("--service-api", default="http://localhost:8084")
+    parser.add_argument("--sib-manager", default=os.environ.get("SIB_MANAGER_URL", "http://localhost:8081"))
+    parser.add_argument("--execution-api", default=os.environ.get("EXECUTION_API_URL", "http://localhost:8082"))
+    parser.add_argument("--service-api", default=os.environ.get("SERVICE_API_URL", "http://localhost:8084"))
     args = parser.parse_args()
 
     SIB_MANAGER = args.sib_manager
@@ -219,6 +279,9 @@ def main():
     test("get-installed-sibs", test_get_installed_sibs)
     test("get-uninstalled-sibs", test_get_uninstalled_sibs)
     test("get-utd-sib-file", test_get_utd_sib_file)
+    test("get-missing-sib-files", test_get_missing_sib_files)
+    test("check-sib-files-hashes (valid)", test_check_sib_files_hashes_valid)
+    test("get-utd-sib-files", test_get_utd_sib_files)
     test("check-sib-file-hash (invalid)", test_check_sib_file_hash_invalid)
     test("check-sib-files-hashes (empty)", test_check_sib_files_hashes_empty)
     test("sib-manager-state", test_sib_manager_state)
