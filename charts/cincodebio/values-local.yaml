@@ -1,14 +1,19 @@
 # values-local.yaml — Overrides for local minikube deployment
 serverTier: local
 ingress_class: nginx
-hostname: cdb.local
-minioHostname: minio.cdb.local
+hostname: localhost
+minioHostname: minio.localhost
 
 minio:
   image:
     registry: docker.io
     repository: bitnami/minio
     tag: 2024.3.26-debian-12-r2
+
+editor:
+  enabled: true
+  image: localhost:5000/cinco-de-bio-editor:latest
+  imagePullPolicy: Always
 
 global:
   containers:

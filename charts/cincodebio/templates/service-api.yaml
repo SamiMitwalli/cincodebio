@@ -33,7 +33,7 @@ spec:
       containers:
         - name: {{ .Values.serviceApi.name }}
           image: {{ .Values.serviceApi.image }}
-          imagePullPolicy: Always
+          imagePullPolicy: {{ .Values.serviceApi.imagePullPolicy | default "Always" }}
           ports:
             - containerPort: 80
           env:

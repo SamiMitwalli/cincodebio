@@ -32,7 +32,7 @@ spec:
       containers:
         - name: {{ .Values.dataManager.name }}
           image: {{ .Values.dataManager.image }}
-          imagePullPolicy: Always
+          imagePullPolicy: {{ .Values.dataManager.imagePullPolicy | default "Always" }}
           ports:
             - containerPort: 80
           env:

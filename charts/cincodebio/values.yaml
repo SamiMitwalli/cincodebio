@@ -84,6 +84,20 @@ frontend:
   image: sccecincodebio/frontend:latest
   name: frontend
 
+editor:
+  enabled: false
+  image: cinco-de-bio-editor:latest
+  imagePullPolicy: IfNotPresent
+  name: cinco-de-bio-editor
+  installProcpsOnStartup: false
+  languageArchiveConfigMap:
+    enabled: false
+    name: cinco-de-bio-editor-language
+    key: languages.tgz
+  hostPorts:
+    enabled: false
+    glsp: 5007
+
 global:
   ontology:
     default_url: "https://colm-brandon-ul.github.io/cellmaps/ontology/v0.0.1/cellmaps.owl"
@@ -102,6 +116,8 @@ global:
     services_api_ingress_path: 'services-api'
     sib_manager_ingress_path: 'sib-manager'
     frontend_ingress_path: 'app'
+    editor_ingress_path: 'editor'
+    editor_files_ingress_path: 'editor-files'
     data_manager_ingress_path: 'data-manager'
     jobs_api_ingress_path: 'jobs-api'
     minio_console_ingress_path: 'minio-console'

@@ -47,7 +47,8 @@ spec:
     spec:
       containers:
         - name: minio
-          image: minio/minio:latest
+          image: {{ .Values.minio.serverImage | default "minio/minio:latest" }}
+          imagePullPolicy: {{ .Values.minio.imagePullPolicy | default "IfNotPresent" }}
           args:
             - server
             - /data
@@ -85,7 +86,8 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: minio/mc:latest
+          image: {{ .Values.minio.mcImage | default "minio/mc:latest" }}
+          imagePullPolicy: {{ .Values.minio.mcImagePullPolicy | default "IfNotPresent" }}
           command:
             - /bin/sh
             - -c

@@ -13,3 +13,7 @@ mirrors:
   "localhost:5000":
     endpoint:
       - "http://127.0.0.1:5000"
+  "docker.io":
+    endpoint:
+      - "https://mirror.gcr.io"
+      - "https://registry-1.docker.io"
