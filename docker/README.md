@@ -11,8 +11,7 @@ docker build -f docker/Dockerfile -t cincodebio-aio .
 # Run
 docker run -d --privileged --cgroupns=host --name cincodebio \
   -p 80:80 \
-  -e DOCKER_HUB_USERNAME=<your-dockerhub-user> \
-  -e DOCKER_HUB_PASSWORD=<your-dockerhub-password> \
+  -p 5007:5007 \
   cincodebio-aio
 
 # Watch startup logs (~5 minutes on first run)
@@ -20,6 +19,13 @@ docker logs -f cincodebio
 
 # Once you see "CincoDeBio is ready!" open:
 #   http://localhost/app/
+#   http://localhost/editor/
+#
+# Optional editor recording:
+#   CINCODEBIO_EDITOR_URL=http://localhost/editor/ npm run test:editor-model
+#   CINCODEBIO_EDITOR_URL=http://localhost/editor/ \
+#   CINCODEBIO_KUBECTL_COMMAND='docker exec -i cincodebio kubectl' \
+#   npm run test:editor-recording
 ```
 
 ## What's Inside
@@ -27,26 +33,28 @@ docker logs -f cincodebio
 The container packages:
 
 | Component | Purpose |
-|-----------|---------|
+| --------- | ------- |
 | **k3s** (Kubernetes v1.28) | Container orchestration |
 | **nginx-ingress** | Routes HTTP traffic to services |
 | **cert-manager** v1.17.2 | TLS certificates (self-signed for local) |
 | **Container registry** | In-cluster image registry for kaniko builds |
-| **CincoDeBio Helm chart** | All 11 application services + MongoDB + MinIO + RabbitMQ |
+| **CincoDeBio Helm chart** | Application services, editor, MongoDB, MinIO, and RabbitMQ |
 
 ## Access Points
 
 All services are accessible through a single port (80) via ingress routing:
 
 | Service | URL |
-|---------|-----|
+| ------- | --- |
 | Frontend | `http://localhost/app/` |
+| CincoDeBio Editor | `http://localhost/editor/` |
+| Editor GLSP WebSocket | `ws://localhost:5007/cinco-diagram` |
 | Minio Console | `http://localhost/minio-console/` |
-| Execution API | `http://localhost/execution-api/ext/...` |
-| Service API | `http://localhost/services-api/ext/...` |
-| SIB Manager | `http://localhost/sib-manager/ext/...` |
-| Data Manager | `http://localhost/data-manager/ext/...` |
-| Jobs API | `http://localhost/jobs-api/ext/...` |
+| Execution API | `http://localhost/execution-api/...` |
+| Service API | `http://localhost/services-api/...` |
+| SIB Manager | `http://localhost/sib-manager/...` |
+| Data Manager | `http://localhost/data-manager/...` |
+| Jobs API | `http://localhost/jobs-api/...` |
 
 ## Management
 
@@ -73,6 +81,7 @@ docker run -d --privileged --cgroupns=host --name cincodebio \
   -p 80:80 \
   -e DOCKER_HUB_USERNAME=<user> \
   -e DOCKER_HUB_PASSWORD=<pass> \
+  -p 5007:5007 \
   -v cincodebio-data:/var/lib/rancher/k3s \
   cincodebio-aio
 ```
@@ -89,15 +98,33 @@ docker run -d --privileged --cgroupns=host --name cincodebio \
 ## Troubleshooting
 
 | Symptom | Fix |
-|---------|-----|
-| Container exits immediately | Check logs: `docker logs cincodebio` — likely missing `-e` credentials |
+| ------- | --- |
+| Container exits immediately | Check logs: `docker logs cincodebio` for the failing startup step |
 | Services not reachable on port 80 | Ensure no other process uses port 80, or map to another port: `-p 8080:80` |
 | Image pull errors inside container | Check internet connectivity; retry `docker stop/rm/run` |
-| Slow first start (>10 min) | Normal on first run — images are pulled from DockerHub |
+| Slow first start (>10 min) | Normal on first run — images are pulled from remote registries |
+| Editor opens but model creation hangs | Ensure `-p 5007:5007` is present and rerun with the current image; the editor pod installs `procps` and opens `/editor/workspace` for Theia workspace APIs |
+| Docker Hub rate-limit errors | Rerun with `-e DOCKER_HUB_USERNAME=<user> -e DOCKER_HUB_PASSWORD=<pass>` to enable authenticated pulls |
+| Editor image pull is very slow | If the editor image is already cached locally, run `docker save registry.gitlab.com/scce/cinco-projects/cinco-editor/cinco-editor:fix-docker-build-run-18d5a43276527ff2b3788bb98f280f740c29ed62 -o /tmp/cinco-editor.tar`, then add `-v /tmp/cinco-editor.tar:/var/lib/rancher/k3s/agent/images/cinco-editor.tar:ro` to the `docker run` command |
+
+For local validation, you can also avoid pulling the editor from GitLab by pushing the cached image to a host-local registry and overriding the chart image:
+
+```bash
+docker run -d --name cdb-editor-registry -p 5001:5000 registry:2
+docker tag registry.gitlab.com/scce/cinco-projects/cinco-editor/cinco-editor:fix-docker-build-run-18d5a43276527ff2b3788bb98f280f740c29ed62 \
+  localhost:5001/cinco-editor:fix-docker-build-run-18d5a43276527ff2b3788bb98f280f740c29ed62
+docker push localhost:5001/cinco-editor:fix-docker-build-run-18d5a43276527ff2b3788bb98f280f740c29ed62
+
+docker run -d --privileged --cgroupns=host --name cincodebio \
+  -p 80:80 \
+  -p 5007:5007 \
+  -e CINCODEBIO_EDITOR_IMAGE=host.docker.internal:5001/cinco-editor:fix-docker-build-run-18d5a43276527ff2b3788bb98f280f740c29ed62 \
+  cincodebio-aio
+```
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │  Docker Container (--privileged)                    │
 │                                                     │
@@ -108,6 +135,7 @@ docker run -d --privileged --cgroupns=host --name cincodebio \
 │  │                                                  │
 │  └── default namespace                              │
 │      ├── frontend                                   │
+│      ├── cinco-de-bio-editor                        │
 │      ├── sib-manager → kaniko → service-api         │
 │      ├── execution-api                              │
 │      ├── jobs-api                                   │
@@ -120,7 +148,7 @@ docker run -d --privileged --cgroupns=host --name cincodebio \
 │      └── rabbitmq                                   │
 └─────────────────────────────────────────────────────┘
          ▲
-         │ -p 80:80
+         │ -p 80:80, -p 5007:5007 (editor)
          ▼
     http://localhost/app/
 ```
@@ -130,7 +158,7 @@ docker run -d --privileged --cgroupns=host --name cincodebio \
 If you need more flexibility than the all-in-one container:
 
 | Approach | Dependencies | Pros | Cons |
-|----------|-------------|------|------|
+| -------- | ------------ | ---- | ---- |
 | **This image** | Docker only | Simplest setup, single command | `--privileged --cgroupns=host`, no hot-reload |
 | **install.sh + minikube** | Docker, minikube, helm, kubectl | Full control, live code editing | 4 tool installs |
 | **k3d** | Docker, k3d | Lightweight clusters, multi-node support | 1 extra binary |

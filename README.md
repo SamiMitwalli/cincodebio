@@ -18,10 +18,13 @@ CincoDeBio runs as a single all-in-one Docker container with an embedded k3s Kub
 ```bash
 docker run -d --privileged --cgroupns=host --name cincodebio \
   -p 80:80 \
+  -p 5007:5007 \
   -e DOCKER_HUB_USERNAME=<docker-hub-username> \
   -e DOCKER_HUB_PASSWORD=<docker-hub-password> \
   cincodebio-aio
 ```
+
+If anonymous image pulls are rate-limited, add `-e DOCKER_HUB_USERNAME=<docker-hub-username>` and `-e DOCKER_HUB_PASSWORD=<docker-hub-password>` to the `docker run` command.
 
 Or build from source:
 
@@ -31,6 +34,7 @@ docker build -f docker/Dockerfile -t cincodebio-aio .
 
 docker run -d --privileged --cgroupns=host --name cincodebio \
   -p 80:80 \
+  -p 5007:5007 \
   -e DOCKER_HUB_USERNAME=<docker-hub-username> \
   -e DOCKER_HUB_PASSWORD=<docker-hub-password> \
   cincodebio-aio
@@ -49,8 +53,10 @@ docker logs cincodebio --follow
 
 ### Access CincoDeBio
 
-- **Frontend:** http://localhost/app/
-- **Minio Console:** http://localhost/minio-console/ (admin / mypassword)
+- **Frontend:** [http://localhost/app/](http://localhost/app/)
+- **CincoDeBio Editor:** [http://localhost/editor/](http://localhost/editor/)
+- **CincoDeBio Editor's GLSP WebSocket:** [ws://localhost:5007/cinco-diagram](ws://localhost:5007/cinco-diagram)
+- **Minio Console:** [http://localhost/minio-console/](http://localhost/minio-console/) (admin / mypassword)
 
 ### Verify Installation
 
@@ -65,41 +71,101 @@ docker exec cincodebio kubectl logs -l app=sib-manager
 docker stop cincodebio && docker rm cincodebio
 ```
 
+### End-to-end demo / verification tests (with video)
+
+Playwright tests drive the editor against a running platform and record `.webm`
+videos to `artifacts/playwright/`. Against the **k3s** deployment (native
+`localhost`):
+
+```bash
+# Peer-reviewer journey: build a TMA workflow ENTIRELY via the palette
+# (drop SIBs onto the canvas, wire control-flow + data-flow edges), then
+# generate, execute, and inspect the result.  -> final-gui-journey-k3s.webm
+npm run test:final-gui-journey
+
+# Faster seeded demo: open editor -> refresh SIB library -> open workflow ->
+# generate/execute -> result.                  -> final-full-demo-k3s.webm
+npm run test:final-full-demo
+
+# Just the generate/execute flow (editor -> execution-api submit ->
+# MiniBrowser opens the workflow URL).         -> final-workflow-generation.webm
+npm run test:final-workflow-generation
+```
+
+Against **minikube** (after `port-forward`-ing the editor + ingress — see the
+Minikube access section above), set the URLs and kubectl command:
+
+```bash
+minikube -p cincodebio-mk kubectl -- -n default \
+  port-forward svc/cinco-de-bio-editor 3000:3000 3003:3003 5007:5007 &
+minikube -p cincodebio-mk kubectl -- -n ingress-nginx \
+  port-forward svc/ingress-nginx-controller 18080:80 &
+
+CINCODEBIO_RUNTIME_LABEL=minikube \
+CINCODEBIO_EDITOR_URL=http://localhost:3000 \
+CINCODEBIO_APP_URL=http://localhost:18080/app \
+CINCODEBIO_EXECUTION_API_URL=http://localhost:18080/execution-api/ext \
+CINCODEBIO_KUBECTL_COMMAND='minikube -p cincodebio-mk kubectl --' \
+npm run test:final-gui-journey
+```
+
+## Installer script
+
+`install.sh` automates either runtime via the `CINCODEBIO_RUNTIME` switch (and
+the workspace root provides `install_k3s.sh` / `install_minikube.sh` wrappers):
+
+```bash
+# k3s all-in-one container (default)
+DOCKER_HUB_USERNAME=<user> DOCKER_HUB_PASSWORD=<pass> bash install.sh
+
+# minikube (alternative)
+CINCODEBIO_RUNTIME=minikube DOCKER_HUB_USERNAME=<user> DOCKER_HUB_PASSWORD=<pass> bash install.sh
+```
+
+The k3s path builds the all-in-one image and runs the container; the minikube
+path starts minikube, configures the ingress addon, loads images, deploys the
+Helm chart, and prints an endpoint-validation summary. Both wait for the
+platform to be ready.
+
 ## Minikube (Alternative)
 
-### Prerequisites
+### Prerequisites (minikube)
 
 1. **Docker** — Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
 2. **Minikube** — Install [minikube](https://minikube.sigs.k8s.io/)
-3. **kubectl** — Install [kubectl](https://kubernetes.io/docs/tasks/tools/)
-4. **Helm** — Install [Helm](https://helm.sh/)
-5. **Docker Hub Account** — Create a free account at [hub.docker.com](https://hub.docker.com)
+3. **Helm** — Install [Helm](https://helm.sh/) (kubectl is bundled via `minikube kubectl`)
+4. **Docker Hub Account** — Create a free account at [hub.docker.com](https://hub.docker.com)
 
-### Installation
+### Installation (minikube)
 
 ```bash
-# Start minikube cluster
-minikube start --cpus 4 --memory 8192 --disk-size 50gb
-
-# Deploy CincoDeBio
 cd cincodebio/
+CINCODEBIO_RUNTIME=minikube \
 DOCKER_HUB_USERNAME=<docker-hub-username> \
 DOCKER_HUB_PASSWORD=<docker-hub-password> \
 bash install.sh 2>&1
 ```
 
-### Access CincoDeBio
+The installer starts minikube (profile `cincodebio-mk` — distinct from the k3s
+container name so both can coexist), enables the ingress addon (with snippet
+annotations + ssl-redirect disabled, matching k3s), loads the service/base/editor
+images, deploys the chart with `values-local.yaml` + `values-docker.yaml`, and
+validates `/app/`, `/editor/`, `/execution-api/ext/get-workflows`, `/sib-manager/health`.
+
+### Access CincoDeBio (minikube)
+
+minikube runs in a VM, so port-forward the ingress from the host (no sudo):
 
 ```bash
-# Get the IP address
-MINIKUBE_IP=$(minikube ip)
-
-# Add to /etc/hosts or access directly
-echo "$MINIKUBE_IP localhost" | sudo tee -a /etc/hosts
-
-# Frontend: http://localhost/app/
-# Minio: http://localhost/minio-console/
+minikube -p cincodebio-mk kubectl -- -n ingress-nginx \
+  port-forward svc/ingress-nginx-controller 18080:80 &
+curl -H 'Host: localhost' http://localhost:18080/app/        # frontend
+curl -H 'Host: localhost' http://localhost:18080/editor/     # editor
 ```
+
+For browser access on `http://localhost/...` instead, run
+`minikube -p cincodebio-mk tunnel` (needs sudo). Stop with
+`minikube -p cincodebio-mk delete`.
 
 ## Architecture Overview
 
@@ -129,9 +195,10 @@ It also manages the websocket connection for the execution front-end client whic
 
 ### Execution Environment
 
-The Execution Environment is an application designed to receive and execute code for workflows. It receives code generated for workflows, executes it in a controlled environment, and manages the lifecycle of these processes. It provides endpoints for creating, monitoring, and terminating processes, as well as handling job callbacks. 
+The Execution Environment is an application designed to receive and execute code for workflows. It receives code generated for workflows, executes it in a controlled environment, and manages the lifecycle of these processes. It provides endpoints for creating, monitoring, and terminating processes, as well as handling job callbacks.
 
 Key features:
+
 - Creates and manages processes from provided code
 - Monitors process status
 - Handles process termination
@@ -189,18 +256,19 @@ Inter
 
 The only service it currently servers is queueing workflow generation tasks, but I can envision its use being extending to other functions in the future.
 
-*Interfaces with:  Execution API, Code Generator.*
+Interfaces with: Execution API, Code Generator.
 
 ### Kubernetes
 
 Cinco de bio is built as a kubernetes native application and it leverages the k8s Jobs API extensively to schedule data processing jobs. Currently all SIBs are implemented as containers, but with-in time we will include additional runtimes for more efficient execution of SIBs which are more lightweight and have simpler dependencies.
 
-## On the Agenda:
+## On the Agenda
 
 - Refactor Frontend:
   Currently each service that has a client facing front end serves it from directly. I will soon refactor this to a single frotend service that the client interfaces with, that then interfaces with the various services as needed. The current structure is as a result as components being tacked on as their need became evident, but is quite clunky and unwei
 
 ## Technologies Used
+
 - **Programming Languages:** Python
 - **Frameworks:** FastAPI, Jinja2
 - **Databases:** MongoDB
