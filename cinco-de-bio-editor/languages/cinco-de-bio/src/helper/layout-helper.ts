@@ -22,7 +22,7 @@ export function layout(sib: Container, ignore?: Node) {
     // parition into inputs, outputs and labels
 
     // Sort alphabetically by type, then numerically by y
-    const nodes = sib.containments.sort((a, b) => { // TODO: SAMI - why replace...
+    const nodes = sib.containments.sort((a, b) => {
         const result = a.type.replace('sib', '').localeCompare(b.type.replace('sib', ''));
         if (result !== 0) {
             return result;

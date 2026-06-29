@@ -7,7 +7,6 @@ const obj: Map<string, string> = new Map([
     ['siblibrary:output', "cincodebio:outputport"],
     ['siblibrary:label', 'cincodebio:siblabel']
 ]);
-// TODO: SAMI - Why?
 Object.entries(obj).forEach(([k, v]) => {
     typeMap.set(k, v)
     typeMap.set(v, k)
