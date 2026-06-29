@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * End-to-end proof-of-work for the minikube deployment path:
- *   1. Runs install_minikube.sh from the workspace root and records terminal output.
+ *   1. Runs install_minikube.sh (in the cincodebio/ folder) and records terminal output.
  *   2. After install, re-establishes a port-forward on localhost:18080.
  *   3. Opens the Theia editor (Host: localhost header required for nginx-ingress routing).
  *   4. Seeds a TMA workflow, refreshes the SIB library, triggers Generate.
@@ -24,10 +24,14 @@ import { fileURLToPath } from 'node:url';
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = join(testDirectory, '..');
 
+// minikube must be reachable on localhost:80 (identical to k3s). That requires a
+// privileged tunnel running in a separate terminal BEFORE this test:
+//     sudo minikube -p cincodebio-mk tunnel
+// The editor builds image/workflow URLs from the browser hostname WITHOUT the port,
+// so a high-port forward (:18080) cannot serve them — hence the tunnel + localhost:80.
 const minikubeProfile = process.env.CINCODEBIO_MINIKUBE_PROFILE ?? 'cincodebio-mk';
-const minikubePort = Number(process.env.CINCODEBIO_MINIKUBE_PORT ?? '18080');
-const editorUrl = process.env.CINCODEBIO_EDITOR_URL ?? `http://localhost:${minikubePort}/editor/`;
-const appBaseUrl = (process.env.CINCODEBIO_APP_BASE_URL ?? `http://localhost:${minikubePort}`).replace(/\/+$/, '');
+const editorUrl = process.env.CINCODEBIO_EDITOR_URL ?? 'http://localhost/editor/';
+const appBaseUrl = (process.env.CINCODEBIO_APP_BASE_URL ?? 'http://localhost').replace(/\/+$/, '');
 const executionApiBaseUrl = process.env.CINCODEBIO_EXECUTION_API_URL ?? `${appBaseUrl}/execution-api`;
 const mkKubectl = `minikube -p ${minikubeProfile} kubectl --`;
 
@@ -50,13 +54,12 @@ test('minikube: full install and workflow generation proof-of-work', async ({ pa
   writeFileSync(stableInstallLogPath, '');
 
   let outputTail = '';
-  let portForwardProcess = null;
 
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installTerminalPage(page);
 
-    await appendTerminal(page, 'host', '$ bash ../install_minikube.sh\n');
+    await appendTerminal(page, 'host', '$ bash install_minikube.sh\n');
     await expectTerminalContains(page, 'install_minikube.sh');
 
     const result = await runInstaller(page, (source, chunk) => {
@@ -73,19 +76,12 @@ test('minikube: full install and workflow generation proof-of-work', async ({ pa
     await testInfo.attach('install-output-full', { path: stableInstallLogPath, contentType: 'text/plain' });
     expect(result.code, tail(outputTail, 18_000)).toBe(0);
 
-    // Re-establish port-forward (install.sh tears it down after endpoint validation)
-    await appendTerminal(page, 'host', `\n$ minikube -p ${minikubeProfile} kubectl -- -n ingress-nginx port-forward svc/ingress-nginx-controller ${minikubePort}:80 &\n`);
-    await page.evaluate(() => window.setInstallStatus?.('Starting port-forward...'));
-    portForwardProcess = spawn(
-      'minikube',
-      ['-p', minikubeProfile, 'kubectl', '--', '-n', 'ingress-nginx',
-        'port-forward', 'svc/ingress-nginx-controller', `${minikubePort}:80`],
-      { detached: true, stdio: 'ignore' }
-    );
-    await sleep(6000);
-
-    // nginx-ingress host rule matches 'localhost'; override Host to strip the port
-    await page.setExtraHTTPHeaders({ Host: 'localhost' });
+    // Require the privileged tunnel so the cluster is on localhost:80 (like k3s).
+    // 'sudo minikube -p <profile> tunnel' must already be running — the editor's
+    // port-less image/workflow URLs only resolve there (a high-port forward cannot).
+    await appendTerminal(page, 'host', `\n$ sudo minikube -p ${minikubeProfile} tunnel   # (run separately)\n`);
+    await page.evaluate(() => window.setInstallStatus?.('Checking localhost:80 (minikube tunnel)...'));
+    await waitForTunnel(editorUrl);
 
     await appendTerminal(page, 'host', `\n$ open ${editorUrl}\n`);
     await page.evaluate(() => window.setInstallStatus?.('Opening Theia editor...'));
@@ -97,10 +93,7 @@ test('minikube: full install and workflow generation proof-of-work', async ({ pa
 
     // --- Workflow generation phase ---
 
-    const api = await playwrightRequest.newContext({
-      ignoreHTTPSErrors: true,
-      extraHTTPHeaders: { Host: 'localhost' }
-    });
+    const api = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
 
     await test.step('seed the TMA workflow model and reset the SIB library', async () => {
       writeWorkspaceFile(modelFileName, loadFixtureModel());
@@ -172,7 +165,6 @@ test('minikube: full install and workflow generation proof-of-work', async ({ pa
 
     await test.step('open the workflow monitoring page and confirm it renders', async () => {
       const workflowPage = await context.newPage();
-      await workflowPage.setExtraHTTPHeaders({ Host: 'localhost' });
       const response = await workflowPage.goto(workflowUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => undefined);
       expect(response?.status() ?? 0, `workflow page ${workflowUrl}`).toBeLessThan(400);
       await workflowPage.screenshot({ path: 'artifacts/playwright/final-minikube-workflow-page.png', fullPage: true });
@@ -185,9 +177,6 @@ test('minikube: full install and workflow generation proof-of-work', async ({ pa
 
     await api.dispose();
   } finally {
-    if (portForwardProcess) {
-      try { process.kill(-portForwardProcess.pid, 'SIGTERM'); } catch { portForwardProcess.kill('SIGTERM'); }
-    }
     if (existsSync(stableInstallLogPath)) {
       await testInfo.attach('install-output-full', { path: stableInstallLogPath, contentType: 'text/plain' }).catch(() => undefined);
     }
@@ -318,7 +307,7 @@ async function runInstaller(page, collect) {
     }
   };
 
-  const child = spawn('bash', ['../install_minikube.sh'], {
+  const child = spawn('bash', ['install_minikube.sh'], {
     cwd: repositoryRoot,
     env: { ...process.env, CINCODEBIO_READY_TIMEOUT: String(readyTimeoutSeconds) },
     detached: true,
@@ -387,6 +376,28 @@ function tail(value, maxLength) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Poll localhost:80 until the privileged minikube tunnel serves the editor.
+// Fails with an explicit instruction if the tunnel isn't running (it needs sudo).
+async function waitForTunnel(url, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr = 'no response';
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, { redirect: 'manual' });
+      if (res.status > 0 && res.status < 500) return;
+      lastErr = `HTTP ${res.status}`;
+    } catch (e) {
+      lastErr = e?.message ?? String(e);
+    }
+    await sleep(3000);
+  }
+  throw new Error(
+    `minikube tunnel not reachable at ${url} (${lastErr}).\n` +
+    `Start it first in a separate terminal:  sudo minikube -p ${minikubeProfile} tunnel\n` +
+    `(The editor's port-less image/workflow URLs only resolve on localhost:80.)`
+  );
 }
 
 // ---- Workflow generation helpers (minikube kubectl variant) -----------------
