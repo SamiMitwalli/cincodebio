@@ -3,6 +3,9 @@ serverTier: local
 ingress_class: nginx
 hostname: localhost
 minioHostname: minio.localhost
+# Local serves minio.localhost over http via the ingress (self-signed CA isn't trusted by
+# minio-py in the SIB pods), so presigned URLs must be generated for http, not https.
+minioExternalSecure: "False"
 
 minio:
   image:

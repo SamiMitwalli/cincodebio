@@ -69,8 +69,13 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-    nginx.ingress.kubernetes.io/proxy-set-headers: |
-      Connection ""
+    # nginx.ingress.kubernetes.io/proxy-set-headers: |
+    #  Connection ""
+    # NOTE: 'proxy-set-headers' must reference a ConfigMap, not a literal — a literal
+    # value made the ingress-nginx controller reject this Ingress as a "risky annotation",
+    # so the minio.localhost server block was never generated (presigned URLs 404'd). Removed.
+    # 'configuration-snippet' requires controller config allow-snippet-annotations=true AND
+    # annotations-risk-level=Critical (set by both the k3s entrypoint and install.sh minikube path).
     nginx.ingress.kubernetes.io/configuration-snippet: |
       chunked_transfer_encoding off;
 spec:

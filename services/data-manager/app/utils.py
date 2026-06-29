@@ -1,5 +1,5 @@
-from config import (JMS_ADDRESS, MINIO_FQDN, MINIO_SERVICE_PORT_MINIO_CONSOLE, MINIO_ACCESS_KEY, 
-                    MINIO_SECRET_KEY, MINIO_SERVICE_PORT, MINIO_EXTERNAL_HOST)
+from config import (JMS_ADDRESS, MINIO_FQDN, MINIO_SERVICE_PORT_MINIO_CONSOLE, MINIO_ACCESS_KEY,
+                    MINIO_SECRET_KEY, MINIO_SERVICE_PORT, MINIO_EXTERNAL_HOST, MINIO_EXTERNAL_SECURE)
 
 import requests
 import json
@@ -27,11 +27,22 @@ def get_minio_client(internal: bool = True) -> Minio:
             secure=False,
         )
     else:
+        # `region` is set so minio-py does NOT make a bucket-region lookup call to the
+        # external host when generating presigned URLs. Without it, generating a presigned
+        # URL tries to reach MINIO_EXTERNAL_HOST (e.g. minio.localhost) from inside the
+        # cluster and 500s when that host is only browser-resolvable. `secure` follows the
+        # deployment (http for local via the ingress, https in production).
         return Minio(
             MINIO_EXTERNAL_HOST,
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
-            secure=True,
+            secure=MINIO_EXTERNAL_SECURE,
+            # This is the S3 "region" string. Its only purpose
+            # here is to make minio-py use it directly instead of doing a bucket-region
+            # lookup HTTP call to MINIO_EXTERNAL_HOST when signing presigned URLs (that call
+            # is what 500s in-cluster). MinIO accepts any region and defaults to "us-east-1"
+            # (MINIO_SITE_REGION is unset here), so "us-east-1" matches the server.
+            region="us-east-1",
         )
 
 
