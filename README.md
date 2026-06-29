@@ -92,19 +92,17 @@ npm run test:final-full-demo
 npm run test:final-workflow-generation
 ```
 
-Against **minikube** (after `port-forward`-ing the editor + ingress — see the
-Minikube access section above), set the URLs and kubectl command:
+Against **minikube**, start the privileged tunnel first so the cluster is reachable
+on `localhost:80` (identical access model to k3s — see the Minikube access section
+below), then set the URLs and kubectl command:
 
 ```bash
-minikube -p cincodebio-mk kubectl -- -n default \
-  port-forward svc/cinco-de-bio-editor 3000:3000 3003:3003 5007:5007 &
-minikube -p cincodebio-mk kubectl -- -n ingress-nginx \
-  port-forward svc/ingress-nginx-controller 18080:80 &
+sudo minikube -p cincodebio-mk tunnel &        # serves http://localhost/...
 
 CINCODEBIO_RUNTIME_LABEL=minikube \
-CINCODEBIO_EDITOR_URL=http://localhost:3000 \
-CINCODEBIO_APP_URL=http://localhost:18080/app \
-CINCODEBIO_EXECUTION_API_URL=http://localhost:18080/execution-api/ext \
+CINCODEBIO_EDITOR_URL=http://localhost/editor/ \
+CINCODEBIO_APP_URL=http://localhost/app \
+CINCODEBIO_EXECUTION_API_URL=http://localhost/execution-api/ext \
 CINCODEBIO_KUBECTL_COMMAND='minikube -p cincodebio-mk kubectl --' \
 npm run test:final-gui-journey
 ```
@@ -112,7 +110,8 @@ npm run test:final-gui-journey
 ## Installer script
 
 `install.sh` automates either runtime via the `CINCODEBIO_RUNTIME` switch (and
-the workspace root provides `install_k3s.sh` / `install_minikube.sh` wrappers):
+this folder provides `install_k3s.sh` / `install_minikube.sh` wrappers, plus
+`uninstall_k3s.sh` / `uninstall_minikube.sh`):
 
 ```bash
 # k3s all-in-one container (default)
@@ -154,18 +153,29 @@ validates `/app/`, `/editor/`, `/execution-api/ext/get-workflows`, `/sib-manager
 
 ### Access CincoDeBio (minikube)
 
-minikube runs in a VM, so port-forward the ingress from the host (no sudo):
+> ⚠️ **Full browser access needs `sudo`.** The Cinco editor builds model-element
+> image URLs and the workflow-result URL from the browser hostname **without the
+> port**, so they only resolve when the cluster is reachable on `localhost:80`.
+> On the docker driver that requires a privileged tunnel:
+
+```bash
+sudo minikube -p cincodebio-mk tunnel        # serves http://localhost/...
+# then browse — identical to k3s:
+curl http://localhost/app/        # frontend
+curl http://localhost/editor/     # editor
+```
+
+A no-sudo port-forward still works for raw API checks but **cannot** serve the
+port-less editor URLs (model-element images and workflow results will be broken):
 
 ```bash
 minikube -p cincodebio-mk kubectl -- -n ingress-nginx \
   port-forward svc/ingress-nginx-controller 18080:80 &
-curl -H 'Host: localhost' http://localhost:18080/app/        # frontend
-curl -H 'Host: localhost' http://localhost:18080/editor/     # editor
+curl -H 'Host: localhost' http://localhost:18080/app/
 ```
 
-For browser access on `http://localhost/...` instead, run
-`minikube -p cincodebio-mk tunnel` (needs sudo). Stop with
-`minikube -p cincodebio-mk delete`.
+**If you cannot use `sudo`, use the k3s variant instead** (`bash install_k3s.sh`).
+Stop with `minikube -p cincodebio-mk delete` (or `bash uninstall_minikube.sh`).
 
 ## Architecture Overview
 
