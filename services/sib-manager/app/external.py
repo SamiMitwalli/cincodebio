@@ -30,7 +30,7 @@ async def check_sib_file_hash(body: CheckSibFileHashRequest):
 async def check_sib_file_hashes(body: CheckSibFilesHashesRequest):
     # need to have a db which stores the hashes of the sib files
     state_path = pathlib.Path(CINCO_CLOUD_SIBS_PATH)
-    sib_files = list(state_path.glob(SIB_FILE_EXTENSION))
+    sib_files = {file.name for file in state_path.glob(SIB_FILE_EXTENSION)}
 
     hash_valid = {}
 
@@ -96,7 +96,7 @@ def get_utd_sib_files(body: UtdSibFilesRequest,request: Request):
             ...
         else: 
             with open(state_path / fid , 'r') as f:
-                files[fid.name]=(f.read())
+                files[fid]=(f.read())
        
     return UtdSibFilesResponse(
                 files=files

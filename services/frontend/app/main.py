@@ -26,6 +26,7 @@ app.mount("/static", StaticFiles(directory=Path(BASE_DIR,"static")), name="stati
 manager = ConnectionManager()
 
 # Endpoint for the main page
+@app.get("/", response_class=HTMLResponse)
 @app.get("", response_class=HTMLResponse)
 async def main_page(request: Request):
     template = env.get_template("index.html.j2")
@@ -103,8 +104,10 @@ async def render_front_end(request: Request, workflow_id: str):
 
     execution_api_address = f'/{EXECUTION_API_INGRESS_PATH}/ext/'
     data_manager_address = f'/{DATA_MANAGER_API_INGRESS}/ext/'
-    # Create the appropriate WS address
-    ws_address = f"{request.base_url.__str__().replace('http','wss')}/{EXECUTION_API_INGRESS_PATH}/ext/state/ws/{workflow_id}"
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", request.base_url.netloc))
+    ws_scheme = "wss" if forwarded_proto == "https" else "ws"
+    ws_address = f"{ws_scheme}://{forwarded_host}/{EXECUTION_API_INGRESS_PATH}/ext/state/ws/{workflow_id}"
     template = env.get_template("execution_template.html.j2")
     html_content = template.render(request=request,
                                    service_name="workflow_manager",
