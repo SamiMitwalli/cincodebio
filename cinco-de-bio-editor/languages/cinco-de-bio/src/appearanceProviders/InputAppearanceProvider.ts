@@ -13,10 +13,9 @@ export class InputAppearanceProvider extends AppearanceProvider {
     override async getAppearance(
         element: InputPort, ...args: unknown[]
     ): Promise<View | undefined>{        
-        let labelNode = element as Node
-        this.log('HELLO')
-        this.log(JSON.stringify(labelNode.properties))
-        this.log(`${labelNode.isPrime}`)
+        let labelNode = element as Node;
+        this.log(JSON.stringify(labelNode.properties));
+        this.log(`Is prime: ${labelNode.isPrime}`);
 
         const sibDef = (await labelNode.primeReference) as SIBDef | undefined;
         if (labelNode.isPrime && sibDef?.properties){
@@ -24,7 +23,7 @@ export class InputAppearanceProvider extends AppearanceProvider {
             this.log(JSON.stringify(labelNode.properties))
             Object.assign(labelNode.properties, sibDef.properties);
         }
-        // TODO: SAMI - View is not updated after changing properties
+        await this.saveModel();
 
         return element.view;
     }
