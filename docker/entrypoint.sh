@@ -113,10 +113,36 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
   --set controller.hostPort.enabled=true \
   --set controller.service.type=ClusterIP \
   --set controller.allowSnippetAnnotations=true \
+  --set controller.config.annotations-risk-level=Critical \
   --set controller.config.ssl-redirect=false \
   --set controller.admissionWebhooks.enabled=false \
   --wait --timeout=15m
 info "nginx-ingress ready"
+# annotations-risk-level=Critical is required (alongside allowSnippetAnnotations) so the
+# minio-presigned-ingress configuration-snippet is accepted; otherwise the controller
+# rejects that Ingress and minio.localhost (presigned URLs) returns 404.
+
+# ---- CoreDNS: resolve minio.localhost in-cluster -> ingress -----------------
+# Interactive SIBs and the data-manager generate presigned MinIO URLs against
+# minio.localhost (the browser-facing host). minio-py performs a bucket-region lookup
+# against that host *from inside the cluster* when generating the URL, which fails because
+# minio.localhost is otherwise only resolvable on the host. Rewrite it to the ingress
+# service so the in-cluster lookup succeeds (the ingress routes minio.localhost -> minio).
+info "Adding CoreDNS rewrite for minio.localhost..."
+COREFILE=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}')
+if ! printf '%s' "$COREFILE" | grep -q "rewrite name minio.localhost"; then
+  NEW_COREFILE=$(printf '%s' "$COREFILE" | sed 's#^\( *\)ready#\1ready\n\1rewrite name minio.localhost ingress-nginx-controller.ingress-nginx.svc.cluster.local#')
+  NODEHOSTS=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}')
+  printf '%s' "$NEW_COREFILE" > /tmp/Corefile
+  printf '%s' "$NODEHOSTS" > /tmp/NodeHosts
+  kubectl create configmap coredns -n kube-system \
+    --from-file=Corefile=/tmp/Corefile --from-file=NodeHosts=/tmp/NodeHosts \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || warn "CoreDNS patch failed"
+  kubectl rollout restart deployment/coredns -n kube-system >/dev/null 2>&1 || true
+  info "CoreDNS rewrite for minio.localhost added"
+else
+  info "CoreDNS rewrite for minio.localhost already present"
+fi
 
 # ---- cert-manager ----------------------------------------------------------
 info "Installing cert-manager v1.17.2..."

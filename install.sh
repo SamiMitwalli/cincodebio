@@ -425,6 +425,33 @@ deploy_minikube() {
   mk -n ingress-nginx rollout restart deployment/ingress-nginx-controller 2>/dev/null || true
   mk -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=120s 2>/dev/null || true
 
+  # ---- CoreDNS: resolve minio.localhost in-cluster -> ingress --------------
+  # Interactive SIBs + data-manager generate presigned MinIO URLs against minio.localhost.
+  # minio-py does an in-cluster bucket-region lookup against that host when generating the
+  # URL, which fails (minio.localhost is otherwise only browser-resolvable). Rewrite it to
+  # the ingress service so the lookup succeeds (the ingress routes minio.localhost -> minio).
+  info "Adding CoreDNS rewrite for minio.localhost..."
+  local corefile
+  corefile="$(mk get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null)"
+  if [[ -n "$corefile" ]] && ! printf '%s' "$corefile" | grep -q "rewrite name minio.localhost"; then
+    printf '%s' "$corefile" | sed 's#^\( *\)ready#\1ready\n\1rewrite name minio.localhost ingress-nginx-controller.ingress-nginx.svc.cluster.local#' > /tmp/cdb-mk-Corefile
+    mk get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' > /tmp/cdb-mk-NodeHosts 2>/dev/null || true
+    if [[ -s /tmp/cdb-mk-NodeHosts ]]; then
+      mk create configmap coredns -n kube-system \
+        --from-file=Corefile=/tmp/cdb-mk-Corefile --from-file=NodeHosts=/tmp/cdb-mk-NodeHosts \
+        --dry-run=client -o yaml | mk apply -f - >/dev/null 2>&1 || warn "CoreDNS patch failed."
+    else
+      mk create configmap coredns -n kube-system \
+        --from-file=Corefile=/tmp/cdb-mk-Corefile \
+        --dry-run=client -o yaml | mk apply -f - >/dev/null 2>&1 || warn "CoreDNS patch failed."
+    fi
+    mk rollout restart deployment/coredns -n kube-system >/dev/null 2>&1 || true
+    rm -f /tmp/cdb-mk-Corefile /tmp/cdb-mk-NodeHosts
+    info "CoreDNS rewrite for minio.localhost added."
+  else
+    info "CoreDNS rewrite for minio.localhost already present (or Corefile unavailable)."
+  fi
+
   # ---- Build + load images -------------------------------------------------
   if [[ "$BUILD_LOCAL_IMAGES" == "true" ]]; then
     for svc in jobs-api data-manager execution-api service-api code-generator \
