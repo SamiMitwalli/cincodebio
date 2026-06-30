@@ -1,6 +1,11 @@
 from config import (JMS_ADDRESS, MINIO_FQDN, MINIO_SERVICE_PORT_MINIO_CONSOLE, MINIO_ACCESS_KEY,
                     MINIO_SECRET_KEY, MINIO_SERVICE_PORT, MINIO_EXTERNAL_HOST, MINIO_EXTERNAL_SECURE)
 
+import os
+import logging
+import tempfile
+import zipfile
+
 import requests
 import json
 import httpx
@@ -100,3 +105,58 @@ async def stream_file(url: str, cookies: requests.cookies.RequestsCookieJar):
         async with client.stream("GET", url) as response:
             async for chunk in response.aiter_bytes():
                 yield chunk
+
+
+def build_prefix_zip(bucket: str, prefix: str):
+    """
+    Build a .zip of every object under `prefix` in `bucket`, using the MinIO S3 API directly.
+
+    This replaces the previous MinIO Console API approach (which 500'd with "specified key does
+    not exist" when given a folder prefix). Returns the path to a temporary .zip file, or None if
+    there are no objects under the prefix. The caller is responsible for streaming + deleting it
+    (see `stream_zip_and_cleanup`).
+    """
+    client = get_minio_client()
+    objects = [o for o in client.list_objects(bucket, prefix=prefix, recursive=True) if not o.is_dir]
+    if not objects:
+        return None
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for obj in objects:
+                response = client.get_object(bucket, obj.object_name)
+                try:
+                    # Store under a path relative to the prefix so the archive isn't nested under
+                    # the full workflow-id/timestamp path.
+                    arcname = obj.object_name[len(prefix):] if obj.object_name.startswith(prefix) else obj.object_name
+                    zf.writestr(arcname or obj.object_name, response.read())
+                finally:
+                    response.close()
+                    response.release_conn()
+        tmp.flush()
+        tmp.close()
+        return tmp.name
+    except Exception:
+        tmp.close()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
+
+
+async def stream_zip_and_cleanup(path: str, chunk_size: int = 256 * 1024):
+    """Stream a file in chunks, then delete it (used for the temp zip)."""
+    try:
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            logging.warning(f"Could not delete temp zip {path}")
