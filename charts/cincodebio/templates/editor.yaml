@@ -81,7 +81,7 @@ spec:
                 THEIA_WEBVIEW_EXTERNAL_ENDPOINT="${THEIA_WEBVIEW_EXTERNAL_ENDPOINT}" THEIA_WEBVIEW_ENDPOINT_PATTERN="${THEIA_WEBVIEW_ENDPOINT_PATTERN}" THEIA_MINI_BROWSER_HOST_PATTERN="${THEIA_MINI_BROWSER_HOST_PATTERN}" \
                 INTERNAL_USE_SSL="${INTERNAL_USE_SSL}" EXTERNAL_USE_SSL="${EXTERNAL_USE_SSL}" \
                 WORKSPACE_PATH="${WORKSPACE_PATH}" TRANSPILATION_MODE="${TRANSPILATION_MODE}" EDITOR_TYPE="${EDITOR_TYPE}" ENVIRONMENT="${ENVIRONMENT}" \
-                yarn run theia start --port=3000 --CINCO_GLSP=5007 -WEB_SERVER_PORT=3003 --remote-debugging-port=9222 --no-cluster --loglevel=debug \
+                yarn run theia start --port=3000 --CINCO_GLSP=5007 -WEB_SERVER_PORT=3003 --remote-debugging-port=9222 --no-cluster --loglevel=warn \
                 --root-dir=/editor/workspace --plugins=local-dir:./plugins --hostname 0.0.0.0 \
                 --META_DEV_MODE --META_LANGUAGES_FOLDER="${META_LANGUAGES_FOLDER}" --CLIENT_PATH="/editor/cinco-glsp-standalone/app/diagram.html" --META_DEBUG_PORT 9222 \
                 "${WORKSPACE_PATH:-/workspace}"
@@ -104,6 +104,11 @@ spec:
               value: "false"
             - name: CINCO_ALLOWED_ORIGINS
               value: '["localhost", "0.0.0.0", "{{ .Values.hostname }}"]'
+            # The GLSP diagram websocket is proxied through the ingress (see WEBSOCKET_HOST_MAPPING
+            # + editor-glsp-ingress), so the Origin seen by the GLSP server is the browser origin
+            # (http://localhost). Allow any origin for the local deployment to avoid ws rejection.
+            - name: CINCO_ALLOW_ANY_ORIGIN
+              value: "true"
             # Always use in-cluster Kubernetes service DNS for server-side API calls
             - name: CINCODEBIO_API_BASE_URL
               value: http://{{ .Values.hostname }}
@@ -113,6 +118,11 @@ spec:
               value: http://{{ .Values.executionApi.name }}
             - name: WEBSERVER_HOST_MAPPING
               value: {{ .Values.global.ingress_paths.editor_files_ingress_path }}
+            # Route the GLSP diagram websocket through the ingress (port 80) instead of :5007, so
+            # the diagram loads on minikube (only the ingress is reachable via the tunnel) and on
+            # k3s alike. The client connects to ws://<host>/<mapping>/cinco-diagram.
+            - name: WEBSOCKET_HOST_MAPPING
+              value: {{ .Values.global.ingress_paths.editor_glsp_ingress_path }}
           {{- if .Values.editor.languageArchiveConfigMap.enabled }}
           volumeMounts:
             - name: editor-language

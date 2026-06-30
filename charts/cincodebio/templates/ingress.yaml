@@ -56,6 +56,45 @@ spec:
             port:
               number: 9001
 ---
+{{- if .Values.editor.enabled }}
+# GLSP diagram websocket (editor :5007) proxied on port 80 so the diagram loads without
+# publishing :5007 to the host. The editor's WEBSOCKET_HOST_MAPPING makes the client connect to
+# ws://<host>/<editor_glsp_ingress_path>/cinco-diagram; the rewrite strips the prefix so the GLSP
+# server receives /cinco-diagram. Long proxy timeouts keep the long-lived ws connection open.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: editor-glsp-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  {{ if ne .Values.serverTier "local" }}
+    cert-manager.io/issuer: "letsencrypt-{{ .Values.serverTier }}"
+  {{ end }}
+spec:
+  ingressClassName: {{ .Values.ingress_class }}
+  tls:
+    - hosts:
+        - {{ .Values.hostname }}
+      {{- if eq .Values.serverTier "local" }}
+      secretName: "cincodebio-local-cert-secret"
+      {{- else }}
+      secretName: "letsencrypt-secret-{{ .Values.serverTier }}"
+      {{- end }}
+  rules:
+  - host: {{ .Values.hostname }}
+    http:
+      paths:
+      - path: /{{ .Values.global.ingress_paths.editor_glsp_ingress_path }}/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: {{ .Values.editor.name }}
+            port:
+              number: 5007
+---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

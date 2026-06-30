@@ -118,6 +118,10 @@ global:
     frontend_ingress_path: 'app'
     editor_ingress_path: 'editor'
     editor_files_ingress_path: 'editor-files'
+    # GLSP diagram websocket (editor :5007). Routed via the ingress on port 80 so the diagram
+    # loads without publishing :5007 to the host (required on minikube, where only the ingress
+    # is reachable through the tunnel). Consumed by the editor's WEBSOCKET_HOST_MAPPING.
+    editor_glsp_ingress_path: 'editor-glsp'
     data_manager_ingress_path: 'data-manager'
     jobs_api_ingress_path: 'jobs-api'
     minio_console_ingress_path: 'minio-console'
