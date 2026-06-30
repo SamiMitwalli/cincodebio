@@ -14,7 +14,10 @@
     "test:final-workflow-generation": "playwright test tests/final_workflow_generation_recording.spec.mjs",
     "test:final-full-demo": "playwright test tests/final_cinco_de_bio_full_demo.spec.mjs",
     "test:final-gui-journey": "playwright test tests/final_gui_workflow_journey.spec.mjs",
-    "test:final-minikube-video": "playwright test tests/final_minikube_install_to_workflow_recording.spec.mjs"
+    "test:final-minikube-video": "playwright test tests/final_minikube_install_to_workflow_recording.spec.mjs",
+    "test:final-k3s-workflow-completed": "playwright test tests/final_k3s_workflow_completed_recording.spec.mjs",
+    "test:final-execution-in-editor": "playwright test tests/final_workflow_execution_in_editor.spec.mjs",
+    "test:final-result-in-simple-browser": "playwright test tests/final_result_in_simple_browser.spec.mjs"
   },
   "dependencies": {
     "@playwright/browser-chromium": "^1.60.0",
